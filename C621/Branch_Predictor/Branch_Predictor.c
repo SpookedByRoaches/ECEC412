@@ -3,12 +3,12 @@
 const unsigned instShiftAmt = 2; // Number of bits to shift a PC by
 
 // You can play around with these settings.
-const unsigned localPredictorSize = 2048;
+const unsigned localPredictorSize = 65536;
 const unsigned localCounterBits = 2;
-const unsigned localHistoryTableSize = 2048; 
-const unsigned globalPredictorSize = 8192 ;
+const unsigned localHistoryTableSize = 32768;
+const unsigned globalPredictorSize = 1048576;
 const unsigned globalCounterBits = 2;
-const unsigned choicePredictorSize = 8192; // Keep this the same as globalPredictorSize.
+const unsigned choicePredictorSize = 1048576;
 const unsigned choiceCounterBits = 2;
 
 Branch_Predictor *initBranchPredictor()
@@ -25,11 +25,8 @@ Branch_Predictor *initBranchPredictor()
     branch_predictor->local_counters =
         (Sat_Counter *)malloc(branch_predictor->local_predictor_sets * sizeof(Sat_Counter));
 
-    int i = 0;
-    for (i; i < branch_predictor->local_predictor_sets; i++)
-    {
+    for (int i = 0; i < branch_predictor->local_predictor_sets; i++)
         initSatCounter(&(branch_predictor->local_counters[i]), localCounterBits);
-    }
     #endif
 
     #ifdef TOURNAMENT
@@ -48,11 +45,8 @@ Branch_Predictor *initBranchPredictor()
     branch_predictor->local_counters =
         (Sat_Counter *)malloc(localPredictorSize * sizeof(Sat_Counter));
 
-    int i = 0;
-    for (i; i < localPredictorSize; i++)
-    {
+    for (int i = 0; i < localPredictorSize; i++)
         initSatCounter(&(branch_predictor->local_counters[i]), localCounterBits);
-    }
 
     branch_predictor->local_predictor_mask = localPredictorSize - 1;
 
@@ -60,10 +54,8 @@ Branch_Predictor *initBranchPredictor()
     branch_predictor->local_history_table = 
         (unsigned *)malloc(localHistoryTableSize * sizeof(unsigned));
 
-    for (i = 0; i < localHistoryTableSize; i++)
-    {
+    for (int i = 0; i < localHistoryTableSize; i++)
         branch_predictor->local_history_table[i] = 0;
-    }
 
     branch_predictor->local_history_table_mask = localHistoryTableSize - 1;
 
@@ -71,10 +63,8 @@ Branch_Predictor *initBranchPredictor()
     branch_predictor->global_counters = 
         (Sat_Counter *)malloc(globalPredictorSize * sizeof(Sat_Counter));
 
-    for (i = 0; i < globalPredictorSize; i++)
-    {
+    for (int i = 0; i < globalPredictorSize; i++)
         initSatCounter(&(branch_predictor->global_counters[i]), globalCounterBits);
-    }
 
     branch_predictor->global_history_mask = globalPredictorSize - 1;
 
@@ -82,10 +72,8 @@ Branch_Predictor *initBranchPredictor()
     branch_predictor->choice_counters = 
         (Sat_Counter *)malloc(choicePredictorSize * sizeof(Sat_Counter));
 
-    for (i = 0; i < choicePredictorSize; i++)
-    {
+    for (int i = 0; i < choicePredictorSize; i++)
         initSatCounter(&(branch_predictor->choice_counters[i]), choiceCounterBits);
-    }
 
     branch_predictor->choice_history_mask = choicePredictorSize - 1;
 
@@ -95,6 +83,7 @@ Branch_Predictor *initBranchPredictor()
     // We assume choice predictor size is always equal to global predictor size.
     branch_predictor->history_register_mask = choicePredictorSize - 1;
     #endif
+
     #ifdef GSHARE
     assert(checkPowerofTwo(globalPredictorSize));
     branch_predictor->global_predictor_size = globalPredictorSize;
@@ -230,11 +219,28 @@ bool predict(Branch_Predictor *branch_predictor, Instruction *instr)
         decrementCounter(&(branch_predictor->local_counters[local_predictor_idx]));
     }
 
-    // Step six, update global history register
+    // Step six, update and global history register and local history table
     branch_predictor->global_history = branch_predictor->global_history << 1 | instr->taken;
     branch_predictor->local_history_table[local_history_table_idx] = branch_predictor->local_history_table[local_history_table_idx] << 1 | instr->taken;
     // exit(0);
     //
+    return prediction_correct;
+    #endif
+
+    #ifdef GSHARE
+    // Step one, get global prediction.
+    unsigned global_predictor_idx = (branch_predictor->global_history & branch_predictor->global_history_mask) ^ (branch_address & branch_predictor->global_history_mask);
+    bool global_prediction = getPrediction(&(branch_predictor->global_counters[global_predictor_idx]));
+    
+    bool prediction_correct = global_prediction == instr->taken;
+    // Step five, update counters
+    if (instr->taken)
+        incrementCounter(&(branch_predictor->global_counters[global_predictor_idx]));
+    else
+        decrementCounter(&(branch_predictor->global_counters[global_predictor_idx]));
+
+    // Step six, update global history register
+    branch_predictor->global_history = branch_predictor->global_history << 1 | instr->taken;
     return prediction_correct;
     #endif
 }
